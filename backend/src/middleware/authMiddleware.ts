@@ -1,12 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { Socket } from 'socket.io';
-import { DefaultEventsMap } from 'socket.io/dist/typed-events';
 import { logger } from '../utils/logger';
+import { UserRole } from '../types/auth.types';
 
 export interface UserPayload {
   id: string;
-  role: 'vendor' | 'delivery' | 'customer';
+  role: UserRole;
 }
 
 declare global {
@@ -61,7 +61,7 @@ export const protect = (
 
 // Middleware for Socket.IO authentication
 export const verifyJwtSocket = (
-  socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>,
+  socket: Socket,
   next: (err?: Error) => void
 ) => {
   const token = socket.handshake.auth.token;

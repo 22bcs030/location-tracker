@@ -25,6 +25,7 @@ export interface IOrder extends Document {
   locationHistory: ILocation[];
   estimatedDeliveryTime?: Date;
   actualDeliveryTime?: Date;
+  trackingToken?: string;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -102,6 +103,9 @@ const OrderSchema = new Schema<IOrder>(
     },
     actualDeliveryTime: {
       type: Date,
+    },
+    trackingToken: {
+      type: String,
     },
     notes: {
       type: String,

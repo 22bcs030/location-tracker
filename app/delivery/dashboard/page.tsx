@@ -6,15 +6,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { DeliveryLayout } from "@/components/delivery-layout"
-import { MapPin, Navigation, Phone, Package, Clock, CheckCircle, Play, Square } from "lucide-react"
+import { MapPin, Navigation, Phone, Package, Clock, CheckCircle, Play, Square, Loader2 } from "lucide-react"
+import { orderService } from "@/services/api"
+import socketService from "@/services/socket"
 
 interface AssignedOrder {
   id: string
+  orderNumber: string
   vendorName: string
+  vendorId?: string
   customerName: string
   customerAddress: string
   customerPhone: string
-  items: string[]
+  items: any[]
   total: number
   status: "assigned" | "picked_up" | "in_transit" | "delivered"
   pickupAddress: string
@@ -26,37 +30,85 @@ export default function DeliveryDashboard() {
   const [isTracking, setIsTracking] = useState(false)
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
 
+  // Initialize socket connection
   useEffect(() => {
-    // Simulate fetching assigned orders
-    setAssignedOrders([
-      {
-        id: "ORD002",
-        vendorName: "Pizza Palace",
-        customerName: "Jane Smith",
-        customerAddress: "456 Oak Ave, Downtown",
-        customerPhone: "+1234567891",
-        items: ["Burger Combo", "Fries"],
-        total: 18.5,
-        status: "assigned",
-        pickupAddress: "123 Restaurant St, Food District",
-        estimatedTime: "25 mins",
-      },
-      {
-        id: "ORD005",
-        vendorName: "Burger House",
-        customerName: "Mike Johnson",
-        customerAddress: "789 Elm St, Suburbs",
-        customerPhone: "+1234567895",
-        items: ["Double Cheeseburger", "Onion Rings", "Milkshake"],
-        total: 24.99,
-        status: "picked_up",
-        pickupAddress: "456 Food Court, Mall Area",
-        estimatedTime: "15 mins",
-      },
-    ])
+    // Get token from localStorage
+    const userJson = localStorage.getItem('user')
+    if (!userJson) return
+
+    const user = JSON.parse(userJson)
+    if (!user.token) return
+
+    const socket = socketService.connect(user.token)
+
+    // Listen for order updates
+    socket.on('order:statusUpdated', (data) => {
+      setAssignedOrders(prevOrders => 
+        prevOrders.map(order => 
+          order.id === data.orderId ? { ...order, status: data.status } : order
+        )
+      )
+    })
+
+    return () => {
+      socket.off('order:statusUpdated')
+    }
   }, [])
+
+  useEffect(() => {
+    const fetchAssignedOrders = async () => {
+      setIsLoading(true)
+      try {
+        // Get user ID from localStorage
+        const userJson = localStorage.getItem('user')
+        if (!userJson) {
+          setIsLoading(false)
+          return
+        }
+
+        const user = JSON.parse(userJson)
+        
+        // Call API to get assigned orders for the delivery partner
+        const response = await orderService.getAssignedOrders(user.id)
+        
+        if (response.success) {
+          // Transform API data to match our frontend model
+          const transformedOrders = response.data.map((order: any) => ({
+            id: order._id,
+            orderNumber: order.orderNumber,
+            vendorName: order.vendorId?.name || 'Restaurant',
+            vendorId: order.vendorId?._id,
+            customerName: order.customerId?.name || 'Customer',
+            customerAddress: order.deliveryLocation?.address || 'Address not available',
+            customerPhone: order.customerId?.phone || '+1234567890',
+            items: order.items || [],
+            total: order.totalAmount,
+            status: order.status === 'picked' ? 'picked_up' : order.status,
+            pickupAddress: order.pickupLocation?.address || 'Pickup location not available',
+            estimatedTime: order.estimatedDeliveryTime ? 
+              `${Math.round((new Date(order.estimatedDeliveryTime).getTime() - Date.now()) / 60000)} mins` : 
+              '25 mins'
+          }))
+          
+          setAssignedOrders(transformedOrders)
+        }
+      } catch (error) {
+        console.error('Error fetching assigned orders:', error)
+        toast({
+          title: 'Error',
+          description: 'Failed to load assigned orders',
+          variant: 'destructive',
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchAssignedOrders()
+  }, [toast])
 
   const startTracking = (orderId: string) => {
     setActiveOrderId(orderId)
@@ -66,9 +118,17 @@ export default function DeliveryDashboard() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setCurrentLocation({
+          const location = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
+          }
+          
+          setCurrentLocation(location)
+
+          // Update location in backend
+          socketService.updateLocation(orderId, {
+            latitude: location.lat,
+            longitude: location.lng
           })
 
           toast({
@@ -76,26 +136,54 @@ export default function DeliveryDashboard() {
             description: "Your location is now being shared with the customer",
           })
 
-          // Simulate location updates
-          simulateLocationUpdates(orderId)
+          // Periodically update location
+          startLocationUpdates(orderId)
         },
         (error) => {
           console.error("Error getting location:", error)
+          toast({
+            title: "Location error",
+            description: "Could not access your location. Using simulated location instead.",
+            variant: "destructive",
+          })
+          
           // Use simulated location for demo
-          setCurrentLocation({
+          const location = {
             lat: 40.7128 + (Math.random() - 0.5) * 0.01,
             lng: -74.006 + (Math.random() - 0.5) * 0.01,
+          }
+          setCurrentLocation(location)
+          
+          // Update simulated location in backend
+          socketService.updateLocation(orderId, {
+            latitude: location.lat,
+            longitude: location.lng
           })
-          simulateLocationUpdates(orderId)
+          
+          startLocationUpdates(orderId)
         },
       )
     } else {
+      toast({
+        title: "Location not supported",
+        description: "Your browser doesn't support geolocation. Using simulated location instead.",
+        variant: "destructive",
+      })
+      
       // Use simulated location for demo
-      setCurrentLocation({
+      const location = {
         lat: 40.7128 + (Math.random() - 0.5) * 0.01,
         lng: -74.006 + (Math.random() - 0.5) * 0.01,
+      }
+      setCurrentLocation(location)
+      
+      // Update simulated location in backend
+      socketService.updateLocation(orderId, {
+        latitude: location.lat,
+        longitude: location.lng
       })
-      simulateLocationUpdates(orderId)
+      
+      startLocationUpdates(orderId)
     }
   }
 
@@ -109,39 +197,108 @@ export default function DeliveryDashboard() {
     })
   }
 
-  const simulateLocationUpdates = (orderId: string) => {
+  const startLocationUpdates = (orderId: string) => {
     const interval = setInterval(() => {
       if (!isTracking) {
         clearInterval(interval)
         return
       }
 
-      setCurrentLocation((prev) => {
-        if (!prev) return null
-        return {
-          lat: prev.lat + (Math.random() - 0.5) * 0.001,
-          lng: prev.lng + (Math.random() - 0.5) * 0.001,
+      // Get current location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const location = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+            }
+            
+            setCurrentLocation(location)
+            
+            // Update location in backend
+            socketService.updateLocation(orderId, {
+              latitude: location.lat,
+              longitude: location.lng
+            })
+          },
+          () => {
+            // If error, use simulated location
+            const location = {
+              lat: (currentLocation?.lat || 40.7128) + (Math.random() - 0.5) * 0.001,
+              lng: (currentLocation?.lng || -74.006) + (Math.random() - 0.5) * 0.001,
+            }
+            
+            setCurrentLocation(location)
+            
+            // Update simulated location in backend
+            socketService.updateLocation(orderId, {
+              latitude: location.lat,
+              longitude: location.lng
+            })
+          }
+        )
+      } else {
+        // If geolocation not supported, use simulated location
+        const location = {
+          lat: (currentLocation?.lat || 40.7128) + (Math.random() - 0.5) * 0.001,
+          lng: (currentLocation?.lng || -74.006) + (Math.random() - 0.5) * 0.001,
         }
-      })
-    }, 3000) // Update every 3 seconds
+        
+        setCurrentLocation(location)
+        
+        // Update simulated location in backend
+        socketService.updateLocation(orderId, {
+          latitude: location.lat,
+          longitude: location.lng
+        })
+      }
+    }, 10000) // Update every 10 seconds
+    
+    return interval
   }
 
-  const updateOrderStatus = (orderId: string, newStatus: AssignedOrder["status"]) => {
-    setAssignedOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status: newStatus } : order)))
+  const updateOrderStatus = async (orderId: string, newStatus: AssignedOrder["status"]) => {
+    try {
+      // Call API to update order status
+      const response = await orderService.updateOrderStatus(orderId, newStatus)
+      
+      if (response.success) {
+        // Update local state
+        setAssignedOrders((prev) => 
+          prev.map((order) => (order.id === orderId ? { ...order, status: newStatus } : order))
+        )
 
-    const statusMessages = {
-      picked_up: "Order picked up from vendor",
-      in_transit: "Delivery started - heading to customer",
-      delivered: "Order delivered successfully",
-    }
+        const statusMessages = {
+          picked_up: "Order picked up from vendor",
+          in_transit: "Delivery started - heading to customer",
+          delivered: "Order delivered successfully",
+        }
 
-    toast({
-      title: "Status updated",
-      description: statusMessages[newStatus],
-    })
+        toast({
+          title: "Status updated",
+          description: statusMessages[newStatus],
+        })
 
-    if (newStatus === "delivered") {
-      stopTracking()
+        // Update status through socket
+        socketService.updateOrderStatus(orderId, newStatus === 'picked_up' ? 'picked' : newStatus)
+
+        if (newStatus === "delivered") {
+          stopTracking()
+        }
+      } else {
+        toast({
+          title: "Update failed",
+          description: response.error || "Could not update order status",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error)
+      toast({
+        title: "Update failed",
+        description: "Could not update order status",
+        variant: "destructive",
+      })
     }
   }
 
@@ -218,94 +375,96 @@ export default function DeliveryDashboard() {
         <div className="space-y-4">
           <h2 className="text-xl font-semibold">Assigned Orders</h2>
 
-          {assignedOrders.map((order) => (
-            <Card key={order.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <CardTitle className="text-lg">Order {order.id}</CardTitle>
-                    <Badge className={getStatusColor(order.status)}>
-                      <div className="flex items-center gap-1">
-                        {getStatusIcon(order.status)}
-                        {order.status.replace("_", " ")}
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="flex flex-col items-center">
+                <Loader2 className="w-10 h-10 animate-spin text-primary mb-2" />
+                <div className="text-muted-foreground">Loading assigned orders...</div>
+              </div>
+            </div>
+          ) : assignedOrders.length > 0 ? (
+            assignedOrders.map((order) => (
+              <Card key={order.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-lg">Order {order.orderNumber}</CardTitle>
+                      <Badge className={getStatusColor(order.status)}>
+                        <div className="flex items-center gap-1">
+                          {getStatusIcon(order.status)}
+                          {order.status.replace("_", " ")}
+                        </div>
+                      </Badge>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold">${order.total}</div>
+                      <div className="text-sm text-muted-foreground">ETA: {order.estimatedTime}</div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {/* Pickup Details */}
+                    <div>
+                      <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        <Package className="w-4 h-4" />
+                        Pickup Details
+                      </h4>
+                      <div className="space-y-2 text-sm">
+                        <p>
+                          <strong>Vendor:</strong> {order.vendorName}
+                        </p>
+                        <p className="flex items-start gap-2">
+                          <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span>{order.pickupAddress}</span>
+                        </p>
                       </div>
-                    </Badge>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-semibold">${order.total}</div>
-                    <div className="text-sm text-muted-foreground">ETA: {order.estimatedTime}</div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* Pickup Details */}
-                  <div>
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                      <Package className="w-4 h-4" />
-                      Pickup Details
-                    </h4>
-                    <div className="space-y-2 text-sm">
-                      <p>
-                        <strong>Vendor:</strong> {order.vendorName}
-                      </p>
-                      <p>
-                        <strong>Address:</strong> {order.pickupAddress}
-                      </p>
-                      <div>
-                        <strong>Items:</strong>
-                        <ul className="mt-1 ml-4">
-                          {order.items.map((item, index) => (
-                            <li key={index}>• {item}</li>
-                          ))}
-                        </ul>
+                    </div>
+
+                    {/* Delivery Details */}
+                    <div>
+                      <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        Delivery Details
+                      </h4>
+                      <div className="space-y-2 text-sm">
+                        <p>
+                          <strong>Customer:</strong> {order.customerName}
+                        </p>
+                        <p className="flex items-start gap-2">
+                          <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span>{order.customerAddress}</span>
+                        </p>
+                        <p className="flex items-center gap-2">
+                          <Phone className="w-4 h-4" />
+                          <span>{order.customerPhone}</span>
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Delivery Details */}
-                  <div>
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                      <MapPin className="w-4 h-4" />
-                      Delivery Details
-                    </h4>
-                    <div className="space-y-2 text-sm">
-                      <p>
-                        <strong>Customer:</strong> {order.customerName}
-                      </p>
-                      <p>
-                        <strong>Phone:</strong> {order.customerPhone}
-                      </p>
-                      <p>
-                        <strong>Address:</strong> {order.customerAddress}
-                      </p>
-                      <Button variant="outline" size="sm" className="mt-2">
-                        <Phone className="w-4 h-4 mr-2" />
-                        Call Customer
-                      </Button>
-                    </div>
+                  {/* Order Items */}
+                  <div className="mt-6">
+                    <h4 className="font-semibold mb-3">Order Items</h4>
+                    <ul className="text-sm space-y-1">
+                      {order.items.map((item, idx) => (
+                        <li key={idx}>
+                          {item.name || item.product?.name || `Item ${idx + 1}`} x{item.quantity}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                </div>
 
-                {/* Action Buttons */}
-                <div className="mt-6 pt-4 border-t">
-                  <div className="flex flex-wrap gap-3">
+                  {/* Action Buttons */}
+                  <div className="mt-6 flex flex-wrap gap-3">
                     {order.status === "assigned" && (
                       <>
                         <Button
                           onClick={() => updateOrderStatus(order.id, "picked_up")}
-                          className="flex-1 sm:flex-none"
+                          className="bg-yellow-500 hover:bg-yellow-600"
                         >
-                          Mark as Picked Up
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => startTracking(order.id)}
-                          disabled={isTracking}
-                          className="flex-1 sm:flex-none"
-                        >
-                          <Play className="w-4 h-4 mr-2" />
-                          Start Tracking
+                          <Package className="w-4 h-4 mr-2" />
+                          Confirm Pickup
                         </Button>
                       </>
                     )}
@@ -314,49 +473,50 @@ export default function DeliveryDashboard() {
                       <>
                         <Button
                           onClick={() => updateOrderStatus(order.id, "in_transit")}
-                          className="flex-1 sm:flex-none"
+                          className="bg-purple-500 hover:bg-purple-600"
                         >
                           <Navigation className="w-4 h-4 mr-2" />
                           Start Delivery
                         </Button>
-                        {!isTracking && (
-                          <Button
-                            variant="outline"
-                            onClick={() => startTracking(order.id)}
-                            className="flex-1 sm:flex-none"
-                          >
-                            <Play className="w-4 h-4 mr-2" />
-                            Start Tracking
-                          </Button>
-                        )}
                       </>
                     )}
 
                     {order.status === "in_transit" && (
-                      <Button onClick={() => updateOrderStatus(order.id, "delivered")} className="flex-1 sm:flex-none">
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Mark as Delivered
-                      </Button>
+                      <>
+                        <Button onClick={() => updateOrderStatus(order.id, "delivered")} className="bg-green-500 hover:bg-green-600">
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Confirm Delivery
+                        </Button>
+                      </>
                     )}
 
-                    {order.status === "delivered" && (
-                      <Badge variant="secondary" className="px-4 py-2">
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Completed
-                      </Badge>
+                    {/* Tracking Button - only for picked_up and in_transit */}
+                    {(order.status === "picked_up" || order.status === "in_transit") && (
+                      <>
+                        {!isTracking || activeOrderId !== order.id ? (
+                          <Button variant="outline" onClick={() => startTracking(order.id)}>
+                            <Play className="w-4 h-4 mr-2" />
+                            Start Tracking
+                          </Button>
+                        ) : (
+                          <Button variant="outline" onClick={stopTracking}>
+                            <Square className="w-4 h-4 mr-2" />
+                            Stop Tracking
+                          </Button>
+                        )}
+                      </>
                     )}
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-
-          {assignedOrders.length === 0 && (
+                </CardContent>
+              </Card>
+            ))
+          ) : (
             <Card>
-              <CardContent className="text-center py-8">
-                <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No assigned orders</h3>
-                <p className="text-muted-foreground">Orders assigned to you will appear here</p>
+              <CardContent className="flex flex-col items-center justify-center py-10">
+                <div className="text-muted-foreground text-center">
+                  <p className="mb-2">No assigned orders yet</p>
+                  <p className="text-sm">New orders assigned to you will appear here</p>
+                </div>
               </CardContent>
             </Card>
           )}

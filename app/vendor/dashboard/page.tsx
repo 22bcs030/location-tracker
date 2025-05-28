@@ -26,19 +26,25 @@ import {
   DollarSign,
   Activity,
   Zap,
+  Loader2
 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { orderService } from "@/services/api"
+import socketService from "@/services/socket"
 
 interface Order {
   id: string
+  _id?: string
+  orderNumber: string
   customerName: string
   customerAddress: string
   customerPhone: string
   items: { name: string; quantity: number; price: number }[]
   total: number
-  status: "pending" | "assigned" | "in_transit" | "delivered"
+  status: "pending" | "accepted" | "assigned" | "picked" | "in_transit" | "delivered" | "cancelled"
   createdAt: string
   assignedPartner?: string
+  deliveryPartnerId?: string
   estimatedDelivery?: string
   paymentMethod: string
   orderType: string
@@ -46,6 +52,7 @@ interface Order {
 
 interface DeliveryPartner {
   id: string
+  _id?: string
   name: string
   phone: string
   rating: number
@@ -61,171 +68,177 @@ export default function VendorDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [isExpanded, setIsExpanded] = useState<Record<string, boolean>>({})
+  const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
 
+  // Initialize socket connection
   useEffect(() => {
-    // Simulate fetching orders and delivery partners
-    setOrders([
-      {
-        id: "ORD-9385",
-        customerName: "John Doe",
-        customerAddress: "123 Main St, City Center, NY 10001",
-        customerPhone: "+1 (555) 123-4567",
-        items: [
-          { name: "Margherita Pizza (Large)", quantity: 1, price: 18.99 },
-          { name: "Garlic Bread", quantity: 1, price: 4.5 },
-          { name: "Coca Cola (500ml)", quantity: 2, price: 2.5 },
-        ],
-        total: 28.49,
-        status: "pending",
-        createdAt: "2024-01-15T10:30:00Z",
-        paymentMethod: "Credit Card",
-        orderType: "Delivery",
-      },
-      {
-        id: "ORD-9384",
-        customerName: "Jane Smith",
-        customerAddress: "456 Oak Ave, Downtown, NY 10002",
-        customerPhone: "+1 (555) 987-6543",
-        items: [
-          { name: "Double Cheeseburger", quantity: 2, price: 12.99 },
-          { name: "French Fries (Large)", quantity: 1, price: 4.5 },
-          { name: "Chocolate Milkshake", quantity: 2, price: 5.99 },
-        ],
-        total: 42.46,
-        status: "assigned",
-        createdAt: "2024-01-15T11:15:00Z",
-        assignedPartner: "Mike Johnson",
-        estimatedDelivery: "12:15 PM",
-        paymentMethod: "PayPal",
-        orderType: "Delivery",
-      },
-      {
-        id: "ORD-9383",
-        customerName: "Robert Wilson",
-        customerAddress: "789 Pine St, Uptown, NY 10003",
-        customerPhone: "+1 (555) 456-7890",
-        items: [
-          { name: "Pasta Alfredo", quantity: 1, price: 16.99 },
-          { name: "Garlic Bread", quantity: 1, price: 4.5 },
-          { name: "Tiramisu", quantity: 1, price: 7.99 },
-          { name: "Sparkling Water", quantity: 2, price: 3.5 },
-        ],
-        total: 36.48,
-        status: "in_transit",
-        createdAt: "2024-01-15T09:45:00Z",
-        assignedPartner: "Sarah Davis",
-        estimatedDelivery: "11:00 AM",
-        paymentMethod: "Cash on Delivery",
-        orderType: "Delivery",
-      },
-      {
-        id: "ORD-9382",
-        customerName: "Emily Johnson",
-        customerAddress: "321 Maple Rd, Westside, NY 10004",
-        customerPhone: "+1 (555) 789-0123",
-        items: [
-          { name: "Vegetarian Pizza (Medium)", quantity: 1, price: 16.99 },
-          { name: "Caesar Salad", quantity: 1, price: 8.99 },
-          { name: "Iced Tea", quantity: 2, price: 2.99 },
-        ],
-        total: 31.96,
-        status: "delivered",
-        createdAt: "2024-01-15T08:30:00Z",
-        assignedPartner: "Tom Brown",
-        paymentMethod: "Credit Card",
-        orderType: "Delivery",
-      },
-      {
-        id: "ORD-9381",
-        customerName: "Michael Brown",
-        customerAddress: "567 Elm St, Eastside, NY 10005",
-        customerPhone: "+1 (555) 234-5678",
-        items: [
-          { name: "Chicken Wings (12 pcs)", quantity: 1, price: 14.99 },
-          { name: "Onion Rings", quantity: 1, price: 5.99 },
-          { name: "Root Beer", quantity: 2, price: 2.99 },
-        ],
-        total: 26.96,
-        status: "pending",
-        createdAt: "2024-01-15T12:00:00Z",
-        paymentMethod: "Apple Pay",
-        orderType: "Pickup",
-      },
-    ])
+    // Get token from localStorage
+    const userJson = localStorage.getItem('user')
+    if (!userJson) return
 
-    setDeliveryPartners([
-      {
-        id: "DP001",
-        name: "Mike Johnson",
-        phone: "+1 (555) 123-7890",
-        rating: 4.8,
-        isAvailable: true,
-        completedOrders: 342,
-        avatar: "/placeholder.svg?height=40&width=40",
-        location: "Downtown",
-      },
-      {
-        id: "DP002",
-        name: "Sarah Davis",
-        phone: "+1 (555) 987-6543",
-        rating: 4.9,
-        isAvailable: false,
-        completedOrders: 521,
-        avatar: "/placeholder.svg?height=40&width=40",
-        location: "Midtown",
-      },
-      {
-        id: "DP003",
-        name: "Tom Brown",
-        phone: "+1 (555) 456-7890",
-        rating: 4.7,
-        isAvailable: true,
-        completedOrders: 287,
-        avatar: "/placeholder.svg?height=40&width=40",
-        location: "Uptown",
-      },
-      {
-        id: "DP004",
-        name: "Lisa White",
-        phone: "+1 (555) 789-0123",
-        rating: 4.6,
-        isAvailable: true,
-        completedOrders: 198,
-        avatar: "/placeholder.svg?height=40&width=40",
-        location: "Downtown",
-      },
-    ])
+    const user = JSON.parse(userJson)
+    if (!user.token) return
+
+    const socket = socketService.connect(user.token)
+
+    // Listen for order updates
+    socket.on('order:statusUpdated', (data) => {
+      setOrders(prevOrders => 
+        prevOrders.map(order => 
+          order.id === data.orderId ? { ...order, status: data.status } : order
+        )
+      )
+    })
+
+    return () => {
+      socket.off('order:statusUpdated')
+    }
   }, [])
 
-  const assignDeliveryPartner = (orderId: string, partnerId: string) => {
-    const partner = deliveryPartners.find((p) => p.id === partnerId)
-    if (!partner) return
+  // Fetch orders and delivery partners from API
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true)
+      try {
+        // Fetch orders
+        const ordersResponse = await orderService.getOrders()
+        if (ordersResponse.success) {
+          // Transform API data to match our frontend model
+          const transformedOrders = ordersResponse.data.map((order: any) => ({
+            id: order._id,
+            orderNumber: order.orderNumber,
+            customerName: order.customerId?.name || 'Customer',
+            customerAddress: order.deliveryLocation?.address || 'Address not available',
+            customerPhone: '+1234567890', // This might come from API in a real implementation
+            items: order.items || [],
+            total: order.totalAmount,
+            status: order.status,
+            createdAt: order.createdAt,
+            assignedPartner: order.deliveryPartnerId?.name,
+            deliveryPartnerId: order.deliveryPartnerId?._id,
+            estimatedDelivery: order.estimatedDeliveryTime 
+              ? new Date(order.estimatedDeliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : undefined,
+            paymentMethod: 'Credit Card', // This might come from API in a real implementation
+            orderType: 'Delivery', // This might come from API in a real implementation
+          }))
+          
+          setOrders(transformedOrders)
+        }
 
-    setOrders((prev) =>
-      prev.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              status: "assigned" as const,
-              assignedPartner: partner.name,
-              estimatedDelivery: new Date(Date.now() + 30 * 60000).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-            }
-          : order,
-      ),
-    )
+        // Here we would also fetch delivery partners
+        // For now using mock data
+        setDeliveryPartners([
+          {
+            id: "DP001",
+            name: "Mike Johnson",
+            phone: "+1 (555) 123-7890",
+            rating: 4.8,
+            isAvailable: true,
+            completedOrders: 342,
+            avatar: "/placeholder.svg?height=40&width=40",
+            location: "Downtown",
+          },
+          {
+            id: "DP002",
+            name: "Sarah Davis",
+            phone: "+1 (555) 987-6543",
+            rating: 4.9,
+            isAvailable: false,
+            completedOrders: 521,
+            avatar: "/placeholder.svg?height=40&width=40",
+            location: "Midtown",
+          },
+          {
+            id: "DP003",
+            name: "Tom Brown",
+            phone: "+1 (555) 456-7890",
+            rating: 4.7,
+            isAvailable: true,
+            completedOrders: 287,
+            avatar: "/placeholder.svg?height=40&width=40",
+            location: "Uptown",
+          },
+          {
+            id: "DP004",
+            name: "Lisa White",
+            phone: "+1 (555) 789-0123",
+            rating: 4.6,
+            isAvailable: true,
+            completedOrders: 198,
+            avatar: "/placeholder.svg?height=40&width=40",
+            location: "Downtown",
+          },
+        ])
+      } catch (error) {
+        console.error('Error fetching data:', error)
+        toast({
+          title: 'Error',
+          description: 'Failed to load dashboard data',
+          variant: 'destructive',
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
 
-    setDeliveryPartners((prev) =>
-      prev.map((partner) => (partner.id === partnerId ? { ...partner, isAvailable: false } : partner)),
-    )
+    fetchData()
+  }, [toast])
 
-    toast({
-      title: "Partner assigned",
-      description: `${partner.name} has been assigned to order ${orderId}`,
-    })
+  const assignDeliveryPartner = async (orderId: string, partnerId: string) => {
+    try {
+      const partner = deliveryPartners.find((p) => p.id === partnerId)
+      if (!partner) return
+
+      // Call API to assign delivery partner
+      const response = await orderService.assignDeliveryPartner(orderId, partnerId)
+      
+      if (response.success) {
+        // Update local state
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  status: "assigned" as const,
+                  assignedPartner: partner.name,
+                  deliveryPartnerId: partnerId,
+                  estimatedDelivery: new Date(Date.now() + 30 * 60000).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                }
+              : order,
+          ),
+        )
+
+        setDeliveryPartners((prev) =>
+          prev.map((partner) => (partner.id === partnerId ? { ...partner, isAvailable: false } : partner)),
+        )
+
+        toast({
+          title: "Partner assigned",
+          description: `${partner.name} has been assigned to order ${orderId}`,
+        })
+
+        // Notify through socket
+        socketService.assignDeliveryPartner(orderId, partnerId)
+      } else {
+        toast({
+          title: "Assignment failed",
+          description: response.error || "Could not assign delivery partner",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error assigning delivery partner:', error)
+      toast({
+        title: "Assignment failed",
+        description: "Could not assign delivery partner",
+        variant: "destructive",
+      })
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -250,7 +263,7 @@ export default function VendorDashboard() {
       case "assigned":
         return <Truck className="w-4 h-4" />
       case "in_transit":
-        return <Package className="w-4 h-4" />
+        return <Truck className="w-4 h-4" />
       case "delivered":
         return <CheckCircle className="w-4 h-4" />
       default:
@@ -265,59 +278,39 @@ export default function VendorDashboard() {
     }))
   }
 
-  const filteredOrders = orders.filter((order) => {
-    const matchesSearch =
-      order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.id.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || order.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
-
-  const stats = {
-    total: orders.length,
-    pending: orders.filter((o) => o.status === "pending").length,
-    assigned: orders.filter((o) => o.status === "assigned").length,
-    inTransit: orders.filter((o) => o.status === "in_transit").length,
-    delivered: orders.filter((o) => o.status === "delivered").length,
-    revenue: orders.reduce((sum, order) => sum + order.total, 0),
-  }
-
   const calculateTotal = (items: { name: string; quantity: number; price: number }[]) => {
     return items.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)
   }
 
+  // Filter orders based on search term and status filter
+  const filteredOrders = orders.filter((order) => {
+    // Filter by search term
+    const searchMatch =
+      order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.customerName.toLowerCase().includes(searchTerm.toLowerCase())
+
+    // Filter by status
+    const statusMatch = statusFilter === "all" || order.status === statusFilter
+
+    return searchMatch && statusMatch
+  })
+  
   return (
     <VendorLayout>
-      <div className="space-y-8 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-blue-900/20 dark:to-indigo-900/20 min-h-screen -m-8 p-8">
+    {isLoading ? (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center">
+          <Loader2 className="w-10 h-10 animate-spin text-primary mb-2" />
+          <div className="text-muted-foreground">Loading dashboard data...</div>
+        </div>
+      </div>
+    ) : (
+      <div className="space-y-8">
         {/* Dashboard Header */}
-        <div className="relative">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-purple-600/10 rounded-3xl blur-3xl"></div>
-          <div className="relative glass rounded-2xl p-6 border border-white/20">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Dashboard Overview
-                </h1>
-                <p className="text-muted-foreground mt-2">Manage your orders and delivery assignments with ease</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Button variant="outline" size="sm" className="glass border-white/20">
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Today
-                </Button>
-                <Button variant="outline" size="sm" className="glass border-white/20">
-                  <TrendingUp className="w-4 h-4 mr-2" />
-                  Analytics
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                >
-                  <Package className="w-4 h-4 mr-2" />
-                  New Order
-                </Button>
-              </div>
-            </div>
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold">Vendor Dashboard</h1>
+            <p className="text-muted-foreground">Manage your orders and delivery partners</p>
           </div>
         </div>
 
@@ -329,7 +322,7 @@ export default function VendorDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-blue-100 text-sm font-medium">Total Orders</p>
-                  <p className="text-2xl font-bold">{stats.total}</p>
+                  <p className="text-2xl font-bold">{orders.length}</p>
                 </div>
                 <Package className="w-8 h-8 text-blue-200" />
               </div>
@@ -342,7 +335,7 @@ export default function VendorDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-amber-100 text-sm font-medium">Pending</p>
-                  <p className="text-2xl font-bold">{stats.pending}</p>
+                  <p className="text-2xl font-bold">{orders.filter((o) => o.status === "pending").length}</p>
                 </div>
                 <Clock className="w-8 h-8 text-amber-200" />
               </div>
@@ -355,7 +348,7 @@ export default function VendorDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-cyan-100 text-sm font-medium">Assigned</p>
-                  <p className="text-2xl font-bold">{stats.assigned}</p>
+                  <p className="text-2xl font-bold">{orders.filter((o) => o.status === "assigned").length}</p>
                 </div>
                 <Truck className="w-8 h-8 text-cyan-200" />
               </div>
@@ -368,7 +361,7 @@ export default function VendorDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-purple-100 text-sm font-medium">In Transit</p>
-                  <p className="text-2xl font-bold">{stats.inTransit}</p>
+                  <p className="text-2xl font-bold">{orders.filter((o) => o.status === "in_transit").length}</p>
                 </div>
                 <Activity className="w-8 h-8 text-purple-200" />
               </div>
@@ -381,7 +374,7 @@ export default function VendorDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-green-100 text-sm font-medium">Delivered</p>
-                  <p className="text-2xl font-bold">{stats.delivered}</p>
+                  <p className="text-2xl font-bold">{orders.filter((o) => o.status === "delivered").length}</p>
                 </div>
                 <CheckCircle className="w-8 h-8 text-green-200" />
               </div>
@@ -394,7 +387,7 @@ export default function VendorDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-indigo-100 text-sm font-medium">Revenue</p>
-                  <p className="text-2xl font-bold">${stats.revenue.toFixed(0)}</p>
+                  <p className="text-2xl font-bold">${orders.reduce((sum, order) => sum + order.total, 0).toFixed(0)}</p>
                 </div>
                 <DollarSign className="w-8 h-8 text-indigo-200" />
               </div>
@@ -476,7 +469,7 @@ export default function VendorDashboard() {
                           <Package className="w-6 h-6 text-gray-600 dark:text-gray-300" />
                         </div>
                         <div>
-                          <CardTitle className="text-lg font-bold">{order.id}</CardTitle>
+                          <CardTitle className="text-lg font-bold">{order.orderNumber}</CardTitle>
                           <div className="text-sm text-muted-foreground">
                             {new Date(order.createdAt).toLocaleString()}
                           </div>
@@ -681,6 +674,7 @@ export default function VendorDashboard() {
           </CardContent>
         </Card>
       </div>
+    )}
     </VendorLayout>
   )
 }

@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
-import { Package, Truck } from "lucide-react"
+import { Package, Truck, Loader2 } from "lucide-react"
+import { authService } from "@/services/api"
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -24,15 +25,18 @@ export default function SignupPage() {
     businessName: "",
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
   const { toast } = useToast()
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+    setError("") // Clear any previous errors when user makes changes
   }
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
 
     if (formData.password !== formData.confirmPassword) {
       toast({
@@ -40,21 +44,57 @@ export default function SignupPage() {
         description: "Passwords do not match",
         variant: "destructive",
       })
+      setError("Passwords do not match")
       return
     }
 
     setIsLoading(true)
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Call the actual API service to register the user
+      const response = await authService.register(
+        formData.name,
+        formData.email,
+        formData.password,
+        formData.role
+      )
+
+      // Store user data in localStorage for immediate login
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          ...response.user,
+          token: response.token,
+        })
+      )
+
       toast({
         title: "Account created successfully",
-        description: "Please sign in to continue",
+        description: "Redirecting to your dashboard...",
       })
 
-      router.push(`/auth/login?role=${formData.role}`)
+      // Redirect based on role
+      switch (formData.role) {
+        case "vendor":
+          router.push("/vendor/dashboard")
+          break
+        case "delivery":
+          router.push("/delivery/dashboard")
+          break
+        default:
+          router.push("/")
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || error.message || "Registration failed. Please try again."
+      setError(errorMessage)
+      toast({
+        title: "Registration failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
       setIsLoading(false)
-    }, 1000)
+    }
   }
 
   return (
@@ -97,7 +137,6 @@ export default function SignupPage() {
                 placeholder="Enter your phone number"
                 value={formData.phone}
                 onChange={(e) => handleInputChange("phone", e.target.value)}
-                required
               />
             </div>
 
@@ -132,7 +171,6 @@ export default function SignupPage() {
                   placeholder="Enter your business name"
                   value={formData.businessName}
                   onChange={(e) => handleInputChange("businessName", e.target.value)}
-                  required
                 />
               </div>
             )}
@@ -161,8 +199,17 @@ export default function SignupPage() {
               />
             </div>
 
+            {error && <div className="text-sm text-red-500">{error}</div>}
+
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Create Account"}
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                "Create Account"
+              )}
             </Button>
           </form>
 

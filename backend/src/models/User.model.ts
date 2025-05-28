@@ -1,12 +1,14 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { UserRole } from '../types/auth.types';
+import { logger } from '../utils/logger';
 
 export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
-  role: 'vendor' | 'delivery' | 'customer';
+  role: UserRole;
   vendorId?: mongoose.Types.ObjectId; // For delivery partners assigned to vendors
   isActive: boolean;
   createdAt: Date;
@@ -61,33 +63,64 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
+// Log any errors that occur when saving a user
+UserSchema.post('save', function(error: any, doc: any, next: any) {
+  if (error) {
+    logger.error(`Error saving user: ${error.message}`);
+    if (error.code === 11000) {
+      logger.error(`Duplicate key error: ${JSON.stringify(error.keyValue)}`);
+    }
+  }
+  next(error);
+});
+
 // Encrypt password before saving
 UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    return next();
-  }
+  try {
+    logger.info(`Saving user with email: ${this.email}, role: ${this.role}`);
 
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
+    if (!this.isModified('password')) {
+      return next();
+    }
+
+    logger.info('Hashing password...');
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    logger.info('Password hashed successfully');
+    next();
+  } catch (error) {
+    logger.error('Error hashing password:', error);
+    next(error as Error);
+  }
 });
 
 // Compare password method
 UserSchema.methods.comparePassword = async function (
   candidatePassword: string
 ): Promise<boolean> {
-  return await bcrypt.compare(candidatePassword, this.password);
+  try {
+    const isMatch = await bcrypt.compare(candidatePassword, this.password);
+    return isMatch;
+  } catch (error) {
+    logger.error('Error comparing passwords:', error);
+    return false;
+  }
 };
 
 // Generate JWT token
 UserSchema.methods.generateAuthToken = function (): string {
-  return jwt.sign(
-    { id: this._id, role: this.role },
-    process.env.JWT_SECRET || 'fallback_secret',
-    {
-      expiresIn: process.env.JWT_EXPIRES_IN || '1d',
-    }
-  );
+  try {
+    const jwtSecret = process.env.JWT_SECRET || 'fallback_secret';
+    logger.info(`Generating token for user: ${this._id}, role: ${this.role}`);
+    return jwt.sign(
+      { id: this._id, role: this.role },
+      jwtSecret,
+      { expiresIn: '30d' }
+    );
+  } catch (error) {
+    logger.error('Error generating token:', error);
+    return '';
+  }
 };
 
 export const User = mongoose.model<IUser>('User', UserSchema); 

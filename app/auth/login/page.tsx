@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
 import { Package, Truck, User, ArrowLeft, Loader2 } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { authService } from "@/services/api"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -28,19 +29,21 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError("")
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
       const selectedRole = role || defaultRole || initialRole
-
-      // Store user data in localStorage (in real app, use proper auth)
+      
+      // Call the backend API for authentication
+      const response = await authService.login(email, password, selectedRole)
+      
+      // Store user data and token in localStorage
       localStorage.setItem(
         "user",
         JSON.stringify({
-          email,
-          role: selectedRole,
-          id: Math.random().toString(36).substr(2, 9),
-        }),
+          ...response.user,
+          token: response.token,
+        })
       )
 
       toast({
@@ -59,10 +62,20 @@ export default function LoginPage() {
         default:
           router.push("/")
       }
-
+    } catch (error: any) {
+      const errorMessage = error.message || "Login failed. Please check your credentials."
+      setError(errorMessage)
+      toast({
+        title: "Login failed",
+        description: errorMessage,
+        variant: "destructive"
+      })
+    } finally {
       setIsLoading(false)
-    }, 1000)
+    }
   }
+
+  const [error, setError] = useState("")
 
   const getRoleIcon = (roleType: string) => {
     switch (roleType) {
@@ -156,6 +169,8 @@ export default function LoginPage() {
                   className="h-11"
                 />
               </div>
+
+              {error && <div className="text-sm text-red-500">{error}</div>}
 
               {defaultRole && (
                 <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">

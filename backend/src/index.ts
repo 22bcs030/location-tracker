@@ -8,7 +8,8 @@ import { logger } from './utils/logger';
 // Load environment variables
 dotenv.config();
 
-const PORT = process.env.PORT || 5000;
+// Force port 5001 to avoid conflicts
+const PORT = 5001;
 
 // Create HTTP server
 const server = http.createServer(app);

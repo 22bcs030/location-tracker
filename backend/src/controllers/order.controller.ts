@@ -3,6 +3,7 @@ import { Order } from '../models/Order.model';
 import { User } from '../models/User.model';
 import { logger } from '../utils/logger';
 import { getIO } from '../sockets';
+import { UserRole } from '../types/auth.types';
 
 // @desc    Create a new order
 // @route   POST /api/orders
@@ -16,6 +17,7 @@ export const createOrder = async (req: Request, res: Response) => {
       pickupLocation,
       deliveryLocation,
       notes,
+      orderNumber
     } = req.body;
 
     // Validation
@@ -33,9 +35,29 @@ export const createOrder = async (req: Request, res: Response) => {
       });
     }
 
+    if (!totalAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Total amount is required',
+      });
+    }
+
+    // Make sure we have a customerId - if not, use the current user as fallback
+    const actualCustomerId = customerId || req.user?.id;
+    if (!actualCustomerId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Customer ID is required',
+      });
+    }
+
+    // Generate a unique order number if not provided
+    const generatedOrderNumber = orderNumber || `ORD-${Date.now()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+
     // Create order
     const order = await Order.create({
-      customerId,
+      orderNumber: generatedOrderNumber,
+      customerId: actualCustomerId,
       vendorId: req.user?.id,
       items,
       totalAmount,
@@ -61,14 +83,14 @@ export const createOrder = async (req: Request, res: Response) => {
   }
 };
 
-// @desc    Get all orders
+// @desc    Get all orders (filtered by user role)
 // @route   GET /api/orders
-// @access  Private - Vendors and Delivery partners
+// @access  Private
 export const getOrders = async (req: Request, res: Response) => {
   try {
     let query = {};
-    
-    // If vendor, only show their orders
+
+    // If vendor, only show orders for this vendor
     if (req.user?.role === 'vendor') {
       query = { vendorId: req.user.id };
     }
@@ -121,12 +143,18 @@ export const getOrderById = async (req: Request, res: Response) => {
     }
 
     // Check permissions - Only allow access to relevant users
-    if (
-      req.user?.role === 'vendor' && 
-      order.vendorId.toString() !== req.user.id &&
-      req.user?.role === 'delivery' && 
-      order.deliveryPartnerId?.toString() !== req.user.id
-    ) {
+    const userRole = req.user?.role as UserRole;
+    
+    // Vendor can only access their own orders
+    if (userRole === 'vendor' && order.vendorId.toString() !== req.user?.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Not authorized to access this order',
+      });
+    }
+    
+    // Delivery partner can only access orders assigned to them
+    if (userRole === 'delivery' && order.deliveryPartnerId?.toString() !== req.user?.id) {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to access this order',
