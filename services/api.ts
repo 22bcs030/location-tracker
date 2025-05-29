@@ -51,6 +51,23 @@ export const authService = {
     const response = await api.get('/auth/profile');
     return response.data;
   },
+  
+  getVendors: async () => {
+    try {
+      const response = await api.get('/auth/vendors');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching vendors:', error);
+      // If the specific endpoint doesn't exist, try a fallback
+      try {
+        const response = await api.get('/users?role=vendor');
+        return response.data;
+      } catch (fallbackError) {
+        console.error('Error fetching vendors with fallback:', fallbackError);
+        return { success: false, error: 'Failed to fetch vendors' };
+      }
+    }
+  }
 };
 
 // Orders services

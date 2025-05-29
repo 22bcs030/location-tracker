@@ -10,22 +10,31 @@ import { Truck, MapPin, Settings, LogOut, Bell } from "lucide-react"
 import Link from "next/link"
 
 export function DeliveryLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth()
+  const { user, logout, isLoading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
-    if (!user || user.role !== "delivery") {
-      router.push("/auth/login?role=delivery")
+    // Only redirect after auth state is loaded and if user is not a delivery partner
+    if (!isLoading && (!user || user.role !== "delivery")) {
+      router.replace("/auth/login?role=delivery")
     }
-  }, [user, router])
+  }, [user, router, isLoading])
 
   const handleLogout = () => {
     logout()
-    router.push("/")
+    router.replace("/")
   }
 
-  if (!user || user.role !== "delivery") {
-    return null
+  // Show nothing while loading or if not authenticated as delivery partner
+  if (isLoading || !user || user.role !== "delivery") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-pulse flex flex-col items-center">
+          <Truck className="w-12 h-12 text-green-600 mb-4" />
+          <div className="text-lg">Loading delivery dashboard...</div>
+        </div>
+      </div>
+    )
   }
 
   return (

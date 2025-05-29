@@ -10,22 +10,31 @@ import { Package, BarChart3, Settings, LogOut, Bell } from "lucide-react"
 import Link from "next/link"
 
 export function VendorLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth()
+  const { user, logout, isLoading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
-    if (!user || user.role !== "vendor") {
-      router.push("/auth/login?role=vendor")
+    // Only redirect after auth state is loaded and if user is not a vendor
+    if (!isLoading && (!user || user.role !== "vendor")) {
+      router.replace("/auth/login?role=vendor")
     }
-  }, [user, router])
+  }, [user, router, isLoading])
 
   const handleLogout = () => {
     logout()
-    router.push("/")
+    router.replace("/")
   }
 
-  if (!user || user.role !== "vendor") {
-    return null
+  // Show nothing while loading or if not authenticated as vendor
+  if (isLoading || !user || user.role !== "vendor") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-pulse flex flex-col items-center">
+          <Package className="w-12 h-12 text-blue-600 mb-4" />
+          <div className="text-lg">Loading vendor dashboard...</div>
+        </div>
+      </div>
+    )
   }
 
   return (

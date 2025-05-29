@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +13,7 @@ import Link from "next/link"
 import { Package, Truck, User, ArrowLeft, Loader2 } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { authService } from "@/services/api"
+import { useAuth } from "@/components/auth-provider"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -22,9 +23,17 @@ export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+  const { login } = useAuth()
 
   const defaultRole = searchParams.get("role") || ""
   const initialRole = defaultRole || "vendor"
+
+  // Set initial role on component mount
+  useEffect(() => {
+    if (!role) {
+      setRole(initialRole);
+    }
+  }, [initialRole, role]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,36 +41,51 @@ export default function LoginPage() {
     setError("")
 
     try {
+      // Ensure we have a selected role
       const selectedRole = role || defaultRole || initialRole
-      
+      console.log("Selected role for login:", selectedRole);
+
       // Call the backend API for authentication
       const response = await authService.login(email, password, selectedRole)
       
-      // Store user data and token in localStorage
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          ...response.user,
-          token: response.token,
-        })
-      )
+      // Ensure the response has the expected structure
+      if (!response.success || !response.token || !response.user) {
+        throw new Error("Invalid response from server");
+      }
+      
+      // Ensure the user object has the role
+      const userData = {
+        ...response.user,
+        token: response.token,
+        role: response.user.role || selectedRole, // Use the role from the response or the selected role
+      };
+      
+      console.log("Login successful, user data:", userData);
+      
+      // Use the auth context to set the user
+      login(userData);
+      
+      // Store user data and token in localStorage (redundant with auth context but kept for compatibility)
+      localStorage.setItem("user", JSON.stringify(userData));
 
       toast({
         title: "Login successful",
-        description: `Welcome back! Redirecting to ${selectedRole} dashboard.`,
+        description: `Welcome back! Redirecting to ${userData.role} dashboard.`,
       })
 
-      // Redirect based on role
-      switch (selectedRole) {
-        case "vendor":
-          router.push("/vendor/dashboard")
-          break
-        case "delivery":
-          router.push("/delivery/dashboard")
-          break
-        default:
-          router.push("/")
-      }
+      // Redirect based on role with a slight delay to ensure localStorage is updated
+      setTimeout(() => {
+        switch (userData.role) {
+          case "vendor":
+            router.replace("/vendor/dashboard")
+            break
+          case "delivery":
+            router.replace("/delivery/dashboard")
+            break
+          default:
+            router.replace("/")
+        }
+      }, 300);
     } catch (error: any) {
       const errorMessage = error.message || "Login failed. Please check your credentials."
       setError(errorMessage)

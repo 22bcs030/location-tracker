@@ -234,7 +234,7 @@ export default function TrackOrderPage() {
                       </>
                     ) : (
                       <>
-                        <Search className="w-4 h-4 mr-2" />
+                    <Search className="w-4 h-4 mr-2" />
                         Track
                       </>
                     )}
@@ -289,20 +289,20 @@ export default function TrackOrderPage() {
 
                     {/* Delivery Partner Info */}
                     {trackingData.status !== "pending" && (
-                      <div>
+                    <div>
                         <h3 className="font-semibold mb-3">Delivery Partner</h3>
                         <div className="space-y-3 text-sm">
-                          <p>
+                        <p>
                             <span className="font-medium">Name:</span> {trackingData.deliveryPartner.name}
-                          </p>
-                          <p>
+                        </p>
+                        <p>
                             <span className="font-medium">Phone:</span> {trackingData.deliveryPartner.phone}
-                          </p>
-                          <Button variant="outline" size="sm" className="mt-2">
-                            <Phone className="w-4 h-4 mr-2" />
-                            Call Driver
-                          </Button>
-                        </div>
+                        </p>
+                        <Button variant="outline" size="sm" className="mt-2">
+                          <Phone className="w-4 h-4 mr-2" />
+                          Call Driver
+                        </Button>
+                      </div>
                       </div>
                     )}
                   </div>

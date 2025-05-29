@@ -9,6 +9,7 @@ interface User {
   email: string
   role: "vendor" | "delivery" | "customer"
   name?: string
+  token?: string
 }
 
 interface AuthContextType {
@@ -29,7 +30,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedUser = localStorage.getItem("user")
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser))
+        const userData = JSON.parse(storedUser);
+        // Ensure the role is explicitly set
+        if (!userData.role && userData.token) {
+          // Try to extract role from JWT token (assuming standard JWT format)
+          try {
+            const tokenPayload = JSON.parse(atob(userData.token.split('.')[1]));
+            if (tokenPayload && tokenPayload.role) {
+              userData.role = tokenPayload.role;
+            }
+          } catch (e) {
+            console.error("Error extracting role from token:", e);
+          }
+        }
+        console.log("Auth Provider - User data from localStorage:", userData);
+        setUser(userData);
       } catch (error) {
         console.error("Error parsing stored user data:", error)
         localStorage.removeItem("user")
@@ -39,6 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const login = (userData: User) => {
+    // Ensure the role is set
+    if (!userData.role) {
+      console.error("Login attempted without a role specified");
+      return;
+    }
+    
+    console.log("Auth Provider - Setting user data:", userData);
     setUser(userData)
     localStorage.setItem("user", JSON.stringify(userData))
   }

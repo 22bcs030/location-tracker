@@ -250,7 +250,7 @@ export default function DeliveryDashboard() {
         socketService.updateLocation(orderId, {
           latitude: location.lat,
           longitude: location.lng
-        })
+      })
       }
     }, 10000) // Update every 10 seconds
     
@@ -268,22 +268,22 @@ export default function DeliveryDashboard() {
           prev.map((order) => (order.id === orderId ? { ...order, status: newStatus } : order))
         )
 
-        const statusMessages = {
-          picked_up: "Order picked up from vendor",
-          in_transit: "Delivery started - heading to customer",
-          delivered: "Order delivered successfully",
-        }
+    const statusMessages = {
+      picked_up: "Order picked up from vendor",
+      in_transit: "Delivery started - heading to customer",
+      delivered: "Order delivered successfully",
+    }
 
-        toast({
-          title: "Status updated",
-          description: statusMessages[newStatus],
-        })
+    toast({
+      title: "Status updated",
+      description: statusMessages[newStatus],
+    })
 
         // Update status through socket
         socketService.updateOrderStatus(orderId, newStatus === 'picked_up' ? 'picked' : newStatus)
 
-        if (newStatus === "delivered") {
-          stopTracking()
+    if (newStatus === "delivered") {
+      stopTracking()
         }
       } else {
         toast({
@@ -384,61 +384,61 @@ export default function DeliveryDashboard() {
             </div>
           ) : assignedOrders.length > 0 ? (
             assignedOrders.map((order) => (
-              <Card key={order.id}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+            <Card key={order.id}>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
                       <CardTitle className="text-lg">Order {order.orderNumber}</CardTitle>
-                      <Badge className={getStatusColor(order.status)}>
-                        <div className="flex items-center gap-1">
-                          {getStatusIcon(order.status)}
-                          {order.status.replace("_", " ")}
-                        </div>
-                      </Badge>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-semibold">${order.total}</div>
-                      <div className="text-sm text-muted-foreground">ETA: {order.estimatedTime}</div>
-                    </div>
+                    <Badge className={getStatusColor(order.status)}>
+                      <div className="flex items-center gap-1">
+                        {getStatusIcon(order.status)}
+                        {order.status.replace("_", " ")}
+                      </div>
+                    </Badge>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {/* Pickup Details */}
-                    <div>
-                      <h4 className="font-semibold mb-3 flex items-center gap-2">
-                        <Package className="w-4 h-4" />
-                        Pickup Details
-                      </h4>
-                      <div className="space-y-2 text-sm">
-                        <p>
-                          <strong>Vendor:</strong> {order.vendorName}
-                        </p>
+                  <div className="text-right">
+                    <div className="font-semibold">${order.total}</div>
+                    <div className="text-sm text-muted-foreground">ETA: {order.estimatedTime}</div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Pickup Details */}
+                  <div>
+                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                      <Package className="w-4 h-4" />
+                      Pickup Details
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        <strong>Vendor:</strong> {order.vendorName}
+                      </p>
                         <p className="flex items-start gap-2">
                           <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
                           <span>{order.pickupAddress}</span>
                         </p>
-                      </div>
                     </div>
+                  </div>
 
-                    {/* Delivery Details */}
-                    <div>
-                      <h4 className="font-semibold mb-3 flex items-center gap-2">
-                        <MapPin className="w-4 h-4" />
-                        Delivery Details
-                      </h4>
-                      <div className="space-y-2 text-sm">
-                        <p>
-                          <strong>Customer:</strong> {order.customerName}
-                        </p>
+                  {/* Delivery Details */}
+                  <div>
+                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      Delivery Details
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        <strong>Customer:</strong> {order.customerName}
+                      </p>
                         <p className="flex items-start gap-2">
                           <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
                           <span>{order.customerAddress}</span>
-                        </p>
+                      </p>
                         <p className="flex items-center gap-2">
                           <Phone className="w-4 h-4" />
                           <span>{order.customerPhone}</span>
-                        </p>
+                      </p>
                       </div>
                     </div>
                   </div>
@@ -453,9 +453,9 @@ export default function DeliveryDashboard() {
                         </li>
                       ))}
                     </ul>
-                  </div>
+                </div>
 
-                  {/* Action Buttons */}
+                {/* Action Buttons */}
                   <div className="mt-6 flex flex-wrap gap-3">
                     {order.status === "assigned" && (
                       <>
@@ -506,9 +506,9 @@ export default function DeliveryDashboard() {
                         )}
                       </>
                     )}
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </CardContent>
+            </Card>
             ))
           ) : (
             <Card>

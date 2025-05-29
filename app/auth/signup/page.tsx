@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,8 +11,16 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
-import { Package, Truck, Loader2 } from "lucide-react"
+import { Package, Truck, Loader2, AlertCircle } from "lucide-react"
 import { authService } from "@/services/api"
+import { useAuth } from "@/components/auth-provider"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
+interface Vendor {
+  id: string;
+  _id?: string;
+  name: string;
+}
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -23,11 +31,62 @@ export default function SignupPage() {
     role: "",
     phone: "",
     businessName: "",
+    vendorId: "",
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingVendors, setIsLoadingVendors] = useState(false)
   const [error, setError] = useState("")
+  const [vendors, setVendors] = useState<Vendor[]>([
+    // Default vendor for testing
+    { id: "683830453ff3a5dd015b2485", name: "Test Vendor" }
+  ])
+  const [vendorError, setVendorError] = useState("")
   const router = useRouter()
   const { toast } = useToast()
+  const { login } = useAuth()
+
+  // Fetch vendors when the component mounts or when role changes to delivery
+  useEffect(() => {
+    if (formData.role === "delivery") {
+      fetchVendors();
+    }
+  }, [formData.role]);
+
+  const fetchVendors = async () => {
+    setIsLoadingVendors(true);
+    setVendorError("");
+    
+    try {
+      const response = await authService.getVendors();
+      
+      if (response.success && response.data) {
+        // Transform vendor data to match our interface
+        const vendorList = response.data.map((vendor: any) => ({
+          id: vendor._id || vendor.id,
+          name: vendor.name || vendor.businessName || `Vendor ${vendor.email}`,
+        }));
+        
+        if (vendorList.length > 0) {
+          setVendors(vendorList);
+          // Auto-select the first vendor if none is selected
+          if (!formData.vendorId) {
+            setFormData(prev => ({ ...prev, vendorId: vendorList[0].id }));
+          }
+        } else {
+          // Keep the default vendor if no vendors were returned
+          setVendorError("No vendors found. Using default vendor.");
+        }
+      } else {
+        // Keep the default vendor if the API call failed
+        setVendorError("Could not fetch vendors. Using default vendor.");
+      }
+    } catch (error) {
+      console.error("Error fetching vendors:", error);
+      setVendorError("Could not fetch vendors. Using default vendor.");
+    } finally {
+      setIsLoadingVendors(false);
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -48,6 +107,17 @@ export default function SignupPage() {
       return
     }
 
+    // Check if a vendor is selected for delivery partners
+    if (formData.role === "delivery" && !formData.vendorId) {
+      toast({
+        title: "Error",
+        description: "Please select a vendor",
+        variant: "destructive",
+      })
+      setError("Please select a vendor")
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -56,34 +126,41 @@ export default function SignupPage() {
         formData.name,
         formData.email,
         formData.password,
-        formData.role
+        formData.role,
+        formData.role === "delivery" ? formData.vendorId : undefined
       )
 
+      // Create user data with role explicitly set
+      const userData = {
+        ...response.user,
+        token: response.token,
+        role: formData.role,
+      };
+
+      // Use the auth context to set the user
+      login(userData);
+
       // Store user data in localStorage for immediate login
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          ...response.user,
-          token: response.token,
-        })
-      )
+      localStorage.setItem("user", JSON.stringify(userData))
 
       toast({
         title: "Account created successfully",
         description: "Redirecting to your dashboard...",
       })
 
-      // Redirect based on role
-      switch (formData.role) {
-        case "vendor":
-          router.push("/vendor/dashboard")
-          break
-        case "delivery":
-          router.push("/delivery/dashboard")
-          break
-        default:
-          router.push("/")
-      }
+      // Redirect based on role with a slight delay to ensure localStorage is updated
+      setTimeout(() => {
+        switch (formData.role) {
+          case "vendor":
+            router.replace("/vendor/dashboard")
+            break
+          case "delivery":
+            router.replace("/delivery/dashboard")
+            break
+          default:
+            router.replace("/")
+        }
+      }, 300)
     } catch (error: any) {
       const errorMessage = error.response?.data?.error || error.message || "Registration failed. Please try again."
       setError(errorMessage)
@@ -172,6 +249,47 @@ export default function SignupPage() {
                   value={formData.businessName}
                   onChange={(e) => handleInputChange("businessName", e.target.value)}
                 />
+              </div>
+            )}
+
+            {formData.role === "delivery" && (
+              <div className="space-y-2">
+                <Label htmlFor="vendorId">Select Vendor</Label>
+                <Select 
+                  value={formData.vendorId} 
+                  onValueChange={(value) => handleInputChange("vendorId", value)} 
+                  disabled={isLoadingVendors}
+                  required
+                >
+                  <SelectTrigger>
+                    {isLoadingVendors ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Loading vendors...</span>
+                      </div>
+                    ) : (
+                      <SelectValue placeholder="Select a vendor" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vendors.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                {vendorError && (
+                  <Alert variant="warning" className="mt-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{vendorError}</AlertDescription>
+                  </Alert>
+                )}
+                
+                <p className="text-xs text-muted-foreground mt-1">
+                  Delivery partners must be associated with a vendor
+                </p>
               </div>
             )}
 
