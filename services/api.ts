@@ -101,6 +101,19 @@ export const orderService = {
     const response = await api.get(`/orders/assigned/${deliveryPartnerId}`);
     return response.data;
   },
+  
+  getAvailableOrders: async () => {
+    try {
+      // Try to get orders that are pending and not assigned to any delivery partner
+      const response = await api.get('/orders?status=pending&unassigned=true');
+      return response.data;
+    } catch (error) {
+      // Fallback to getting all orders and filtering on the client side
+      console.error('Error fetching available orders:', error);
+      const response = await api.get('/orders');
+      return response.data;
+    }
+  },
 };
 
 // Tracking services (no authentication required)

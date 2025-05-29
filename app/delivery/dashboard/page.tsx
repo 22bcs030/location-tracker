@@ -6,9 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { DeliveryLayout } from "@/components/delivery-layout"
-import { MapPin, Navigation, Phone, Package, Clock, CheckCircle, Play, Square, Loader2 } from "lucide-react"
+import { MapPin, Navigation, Phone, Package, Clock, CheckCircle, Play, Square, Loader2, Plus } from "lucide-react"
 import { orderService } from "@/services/api"
 import socketService from "@/services/socket"
+import { OrderDetail } from "@/components/order-detail"
+import { PerformanceDashboard } from "@/components/performance-dashboard"
+import { AssignedOrder as AssignedOrderType, OrderStatus, AvailableOrder as AvailableOrderType } from "@/types/delivery"
 
 interface AssignedOrder {
   id: string
@@ -20,17 +23,43 @@ interface AssignedOrder {
   customerPhone: string
   items: any[]
   total: number
-  status: "assigned" | "picked_up" | "in_transit" | "delivered"
+  status: OrderStatus
   pickupAddress: string
   estimatedTime: string
+  assignedAt: string
+  pickedUpAt?: string
+  inTransitAt?: string
+  deliveredAt?: string
+  vendorAddress?: string
+  vendorPhone?: string
+  commission?: number
+  orderType?: "delivery" | "pickup"
+  paymentMethod?: string
+  specialInstructions?: string
+  distance?: string
+}
+
+interface AvailableOrder {
+  id: string
+  orderNumber: string
+  vendorName: string
+  vendorId?: string
+  customerAddress: string
+  items: any[]
+  total: number
+  pickupAddress: string
+  estimatedTime: string
+  distance: string
 }
 
 export default function DeliveryDashboard() {
   const [assignedOrders, setAssignedOrders] = useState<AssignedOrder[]>([])
+  const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([])
   const [isTracking, setIsTracking] = useState(false)
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isAssigning, setIsAssigning] = useState<string | null>(null)
   const { toast } = useToast()
 
   // Initialize socket connection
@@ -53,8 +82,14 @@ export default function DeliveryDashboard() {
       )
     })
 
+    // Listen for new available orders
+    socket.on('order:new', (data) => {
+      fetchAvailableOrders()
+    })
+
     return () => {
       socket.off('order:statusUpdated')
+      socket.off('order:new')
     }
   }, [])
 
@@ -81,20 +116,34 @@ export default function DeliveryDashboard() {
             orderNumber: order.orderNumber,
             vendorName: order.vendorId?.name || 'Restaurant',
             vendorId: order.vendorId?._id,
+            vendorAddress: order.pickupLocation?.address || 'Vendor address not available',
+            vendorPhone: order.vendorId?.phone || '',
             customerName: order.customerId?.name || 'Customer',
             customerAddress: order.deliveryLocation?.address || 'Address not available',
             customerPhone: order.customerId?.phone || '+1234567890',
             items: order.items || [],
             total: order.totalAmount,
+            commission: order.deliveryFee || 0,
             status: order.status === 'picked' ? 'picked_up' : order.status,
+            orderType: "delivery",
+            paymentMethod: order.paymentMethod || "Online Payment",
+            specialInstructions: order.specialInstructions || '',
             pickupAddress: order.pickupLocation?.address || 'Pickup location not available',
+            distance: order.distance || '2.5 km',
             estimatedTime: order.estimatedDeliveryTime ? 
               `${Math.round((new Date(order.estimatedDeliveryTime).getTime() - Date.now()) / 60000)} mins` : 
-              '25 mins'
+              '25 mins',
+            assignedAt: order.assignedAt || new Date().toISOString(),
+            pickedUpAt: order.pickedAt,
+            inTransitAt: order.inTransitAt,
+            deliveredAt: order.deliveredAt
           }))
           
           setAssignedOrders(transformedOrders)
         }
+
+        // Also fetch available orders
+        fetchAvailableOrders()
       } catch (error) {
         console.error('Error fetching assigned orders:', error)
         toast({
@@ -102,6 +151,9 @@ export default function DeliveryDashboard() {
           description: 'Failed to load assigned orders',
           variant: 'destructive',
         })
+        
+        // Still try to fetch available orders even if assigned orders fail
+        fetchAvailableOrders()
       } finally {
         setIsLoading(false)
       }
@@ -109,6 +161,212 @@ export default function DeliveryDashboard() {
 
     fetchAssignedOrders()
   }, [toast])
+
+  const fetchAvailableOrders = async () => {
+    try {
+      // Try to fetch real available orders from API
+      const response = await orderService.getOrders()
+      
+      if (response.success) {
+        // Filter orders that are pending (not assigned yet)
+        const availableOrdersData = response.data
+          .filter((order: any) => order.status === 'pending' && !order.deliveryPartnerId)
+          .map((order: any) => ({
+            id: order._id,
+            orderNumber: order.orderNumber,
+            vendorName: order.vendorId?.name || 'Restaurant',
+            vendorId: order.vendorId?._id,
+            customerAddress: order.deliveryLocation?.address || 'Address not available',
+            items: order.items || [],
+            total: order.totalAmount,
+            pickupAddress: order.pickupLocation?.address || 'Pickup location not available',
+            estimatedTime: '30 mins',
+            distance: '2.5 km'
+          }))
+        
+        setAvailableOrders(availableOrdersData)
+      } else {
+        // If API call fails or returns no orders, use mock data
+        generateMockOrders()
+      }
+    } catch (error) {
+      console.error('Error fetching available orders:', error)
+      // Use mock data as fallback
+      generateMockOrders()
+    }
+  }
+
+  const generateMockOrders = () => {
+    // Generate 3 mock orders
+    const mockOrders: AvailableOrder[] = [
+      {
+        id: `mock-${Date.now()}-1`,
+        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        vendorName: 'Burger Palace',
+        customerAddress: '123 Main St, New York',
+        items: [
+          { name: 'Cheeseburger', quantity: 2, price: 12.99 },
+          { name: 'Fries', quantity: 1, price: 4.99 }
+        ],
+        total: 30.97,
+        pickupAddress: '789 Restaurant Ave, New York',
+        estimatedTime: '25 mins',
+        distance: '1.8 km'
+      },
+      {
+        id: `mock-${Date.now()}-2`,
+        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        vendorName: 'Pizza Express',
+        customerAddress: '456 Park Ave, New York',
+        items: [
+          { name: 'Pepperoni Pizza', quantity: 1, price: 18.99 },
+          { name: 'Garlic Knots', quantity: 1, price: 5.99 }
+        ],
+        total: 24.98,
+        pickupAddress: '101 Pizza St, New York',
+        estimatedTime: '35 mins',
+        distance: '2.3 km'
+      },
+      {
+        id: `mock-${Date.now()}-3`,
+        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        vendorName: 'Sushi House',
+        customerAddress: '789 Broadway, New York',
+        items: [
+          { name: 'California Roll', quantity: 2, price: 14.99 },
+          { name: 'Miso Soup', quantity: 2, price: 3.99 }
+        ],
+        total: 37.96,
+        pickupAddress: '202 Sushi Blvd, New York',
+        estimatedTime: '20 mins',
+        distance: '1.5 km'
+      }
+    ]
+    
+    setAvailableOrders(mockOrders)
+  }
+
+  const assignOrderToMe = async (orderId: string) => {
+    setIsAssigning(orderId)
+    
+    try {
+      // Get user ID from localStorage
+      const userJson = localStorage.getItem('user')
+      if (!userJson) {
+        toast({
+          title: 'Error',
+          description: 'You must be logged in to accept orders',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const user = JSON.parse(userJson)
+      
+      // Check if it's a mock order
+      if (orderId.startsWith('mock-')) {
+        // For mock orders, create a simulated assigned order
+        const mockOrder = availableOrders.find(order => order.id === orderId)
+        
+        if (mockOrder) {
+          const newAssignedOrder: AssignedOrder = {
+            id: mockOrder.id,
+            orderNumber: mockOrder.orderNumber,
+            vendorName: mockOrder.vendorName,
+            vendorId: mockOrder.vendorId,
+            customerName: 'Mock Customer',
+            customerAddress: mockOrder.customerAddress,
+            customerPhone: '+1234567890',
+            items: mockOrder.items,
+            total: mockOrder.total,
+            status: 'assigned',
+            pickupAddress: mockOrder.pickupAddress,
+            estimatedTime: mockOrder.estimatedTime,
+            assignedAt: new Date().toISOString(),
+            vendorAddress: mockOrder.pickupAddress,
+            commission: mockOrder.total * 0.1, // 10% commission
+            orderType: "delivery",
+            paymentMethod: "Online Payment",
+            distance: mockOrder.distance
+          }
+          
+          // Add to assigned orders
+          setAssignedOrders(prev => [...prev, newAssignedOrder])
+          
+          // Remove from available orders
+          setAvailableOrders(prev => prev.filter(order => order.id !== orderId))
+          
+          toast({
+            title: 'Order assigned',
+            description: `Order ${mockOrder.orderNumber} has been assigned to you`,
+          })
+        }
+      } else {
+        // For real orders, call the API
+        const response = await orderService.assignDeliveryPartner(orderId, user.id)
+        
+        if (response.success) {
+          toast({
+            title: 'Order assigned',
+            description: `Order has been assigned to you`,
+          })
+          
+          // Refresh assigned orders
+          const assignedResponse = await orderService.getAssignedOrders(user.id)
+          
+          if (assignedResponse.success) {
+            const transformedOrders = assignedResponse.data.map((order: any) => ({
+              id: order._id,
+              orderNumber: order.orderNumber,
+              vendorName: order.vendorId?.name || 'Restaurant',
+              vendorId: order.vendorId?._id,
+              vendorAddress: order.pickupLocation?.address || 'Vendor address not available',
+              vendorPhone: order.vendorId?.phone || '',
+              customerName: order.customerId?.name || 'Customer',
+              customerAddress: order.deliveryLocation?.address || 'Address not available',
+              customerPhone: order.customerId?.phone || '+1234567890',
+              items: order.items || [],
+              total: order.totalAmount,
+              commission: order.deliveryFee || 0,
+              status: order.status === 'picked' ? 'picked_up' : order.status,
+              orderType: "delivery",
+              paymentMethod: order.paymentMethod || "Online Payment",
+              specialInstructions: order.specialInstructions || '',
+              pickupAddress: order.pickupLocation?.address || 'Pickup location not available',
+              distance: order.distance || '2.5 km',
+              estimatedTime: order.estimatedDeliveryTime ? 
+                `${Math.round((new Date(order.estimatedDeliveryTime).getTime() - Date.now()) / 60000)} mins` : 
+                '25 mins',
+              assignedAt: order.assignedAt || new Date().toISOString(),
+              pickedUpAt: order.pickedAt,
+              inTransitAt: order.inTransitAt,
+              deliveredAt: order.deliveredAt
+            }))
+            
+            setAssignedOrders(transformedOrders)
+          }
+          
+          // Refresh available orders
+          fetchAvailableOrders()
+        } else {
+          toast({
+            title: 'Assignment failed',
+            description: response.error || 'Could not assign order',
+            variant: 'destructive',
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error assigning order:', error)
+      toast({
+        title: 'Assignment failed',
+        description: 'Could not assign order',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsAssigning(null)
+    }
+  }
 
   const startTracking = (orderId: string) => {
     setActiveOrderId(orderId)
@@ -250,28 +508,51 @@ export default function DeliveryDashboard() {
         socketService.updateLocation(orderId, {
           latitude: location.lat,
           longitude: location.lng
-      })
+        })
       }
     }, 10000) // Update every 10 seconds
     
     return interval
   }
 
-  const updateOrderStatus = async (orderId: string, newStatus: AssignedOrder["status"]) => {
+  // Update order status with timestamps
+  const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     try {
       // Call API to update order status
       const response = await orderService.updateOrderStatus(orderId, newStatus)
       
       if (response.success) {
-        // Update local state
+        // Update local state with timestamps
         setAssignedOrders((prev) => 
-          prev.map((order) => (order.id === orderId ? { ...order, status: newStatus } : order))
+          prev.map((order) => {
+            if (order.id === orderId) {
+              const updatedOrder = { ...order, status: newStatus };
+              
+              // Add timestamp based on status
+              switch (newStatus) {
+                case 'picked_up':
+                  updatedOrder.pickedUpAt = new Date().toISOString();
+                  break;
+                case 'in_transit':
+                  updatedOrder.inTransitAt = new Date().toISOString();
+                  break;
+                case 'delivered':
+                  updatedOrder.deliveredAt = new Date().toISOString();
+                  break;
+              }
+              
+              return updatedOrder;
+            }
+            return order;
+          })
         )
 
     const statusMessages = {
+          assigned: "Order assigned to you",
       picked_up: "Order picked up from vendor",
       in_transit: "Delivery started - heading to customer",
       delivered: "Order delivered successfully",
+          cancelled: "Order has been cancelled"
     }
 
     toast({
@@ -337,8 +618,13 @@ export default function DeliveryDashboard() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Delivery Dashboard</h1>
-          <p className="text-muted-foreground">Manage your assigned deliveries</p>
+          <p className="text-muted-foreground">Manage your assigned deliveries and track your earnings</p>
         </div>
+
+        {/* Performance Dashboard */}
+        <PerformanceDashboard 
+          userId={JSON.parse(localStorage.getItem('user') || '{}').id || ''}
+        />
 
         {/* Tracking Status */}
         {isTracking && (
@@ -363,13 +649,86 @@ export default function DeliveryDashboard() {
                 </div>
                 {currentLocation && (
                   <div>
-                    Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
+                    Coordinates: {currentLocation.lat.toFixed(6)}, {currentLocation.lng.toFixed(6)}
                   </div>
                 )}
+              </div>
+              <div className="text-sm text-green-700 mt-1">
+                Customer can see your live location
               </div>
             </CardContent>
           </Card>
         )}
+
+        {/* Available Orders */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold">Available Orders</h2>
+          
+          {availableOrders.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {availableOrders.map((order) => (
+                <Card key={order.id} className="border-dashed border-2 border-blue-200">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-center">
+                      <CardTitle className="text-lg">Order {order.orderNumber}</CardTitle>
+                      <Badge variant="outline" className="bg-blue-50">
+                        {order.distance}
+                    </Badge>
+                  </div>
+                    <p className="text-sm text-muted-foreground">{order.vendorName}</p>
+              </CardHeader>
+              <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium">Items:</span>
+                        <span>{order.items.length} items</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium">Pickup:</span>
+                        <span className="truncate max-w-[200px]">{order.pickupAddress}</span>
+                    </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium">Delivery:</span>
+                        <span className="truncate max-w-[200px]">{order.customerAddress}</span>
+                  </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium">Total:</span>
+                        <span className="font-semibold">${order.total.toFixed(2)}</span>
+                </div>
+
+                        <Button
+                        className="w-full mt-2" 
+                        onClick={() => assignOrderToMe(order.id)}
+                        disabled={isAssigning === order.id}
+                      >
+                        {isAssigning === order.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Assigning...
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Assign to Me
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+                  </div>
+          ) : (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-6">
+                <div className="text-muted-foreground text-center">
+                  <p className="mb-2">No available orders at the moment</p>
+                  <p className="text-sm">Check back later for new orders</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
         {/* Assigned Orders */}
         <div className="space-y-4">
@@ -383,133 +742,15 @@ export default function DeliveryDashboard() {
               </div>
             </div>
           ) : assignedOrders.length > 0 ? (
-            assignedOrders.map((order) => (
-            <Card key={order.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                      <CardTitle className="text-lg">Order {order.orderNumber}</CardTitle>
-                    <Badge className={getStatusColor(order.status)}>
-                      <div className="flex items-center gap-1">
-                        {getStatusIcon(order.status)}
-                        {order.status.replace("_", " ")}
-                      </div>
-                    </Badge>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-semibold">${order.total}</div>
-                    <div className="text-sm text-muted-foreground">ETA: {order.estimatedTime}</div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* Pickup Details */}
-                  <div>
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                      <Package className="w-4 h-4" />
-                      Pickup Details
-                    </h4>
-                    <div className="space-y-2 text-sm">
-                      <p>
-                        <strong>Vendor:</strong> {order.vendorName}
-                      </p>
-                        <p className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
-                          <span>{order.pickupAddress}</span>
-                        </p>
-                    </div>
-                  </div>
-
-                  {/* Delivery Details */}
-                  <div>
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                      <MapPin className="w-4 h-4" />
-                      Delivery Details
-                    </h4>
-                    <div className="space-y-2 text-sm">
-                      <p>
-                        <strong>Customer:</strong> {order.customerName}
-                      </p>
-                        <p className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
-                          <span>{order.customerAddress}</span>
-                      </p>
-                        <p className="flex items-center gap-2">
-                          <Phone className="w-4 h-4" />
-                          <span>{order.customerPhone}</span>
-                      </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Order Items */}
-                  <div className="mt-6">
-                    <h4 className="font-semibold mb-3">Order Items</h4>
-                    <ul className="text-sm space-y-1">
-                      {order.items.map((item, idx) => (
-                        <li key={idx}>
-                          {item.name || item.product?.name || `Item ${idx + 1}`} x{item.quantity}
-                        </li>
-                      ))}
-                    </ul>
-                </div>
-
-                {/* Action Buttons */}
-                  <div className="mt-6 flex flex-wrap gap-3">
-                    {order.status === "assigned" && (
-                      <>
-                        <Button
-                          onClick={() => updateOrderStatus(order.id, "picked_up")}
-                          className="bg-yellow-500 hover:bg-yellow-600"
-                        >
-                          <Package className="w-4 h-4 mr-2" />
-                          Confirm Pickup
-                        </Button>
-                      </>
-                    )}
-
-                    {order.status === "picked_up" && (
-                      <>
-                        <Button
-                          onClick={() => updateOrderStatus(order.id, "in_transit")}
-                          className="bg-purple-500 hover:bg-purple-600"
-                        >
-                          <Navigation className="w-4 h-4 mr-2" />
-                          Start Delivery
-                        </Button>
-                      </>
-                    )}
-
-                    {order.status === "in_transit" && (
-                      <>
-                        <Button onClick={() => updateOrderStatus(order.id, "delivered")} className="bg-green-500 hover:bg-green-600">
-                          <CheckCircle className="w-4 h-4 mr-2" />
-                          Confirm Delivery
-                        </Button>
-                      </>
-                    )}
-
-                    {/* Tracking Button - only for picked_up and in_transit */}
-                    {(order.status === "picked_up" || order.status === "in_transit") && (
-                      <>
-                        {!isTracking || activeOrderId !== order.id ? (
-                          <Button variant="outline" onClick={() => startTracking(order.id)}>
-                            <Play className="w-4 h-4 mr-2" />
-                            Start Tracking
-                          </Button>
-                        ) : (
-                          <Button variant="outline" onClick={stopTracking}>
-                            <Square className="w-4 h-4 mr-2" />
-                            Stop Tracking
-                          </Button>
-                        )}
-                      </>
-                    )}
-                </div>
-              </CardContent>
-            </Card>
-            ))
+            <div className="space-y-6">
+              {assignedOrders.map((order) => (
+                <OrderDetail 
+                  key={order.id}
+                  order={order as AssignedOrderType}
+                  onStatusUpdate={updateOrderStatus}
+                />
+              ))}
+            </div>
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-10">
