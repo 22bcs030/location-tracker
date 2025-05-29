@@ -49,13 +49,13 @@ A comprehensive real-time delivery tracking system that enables vendors to assig
 └── package.json           # Dependencies
 ```
 
-### Application Flow
-1 **Assignment**: Vendor views available orders and assigns a specific delivery partner
-2 **Delivery Access**: Only assigned orders appear in the delivery partner's dashboard
-3 **Tracking Start**: Delivery partner accepts the order and starts location tracking
-4 **Location Updates**: Delivery partner's app sends real-time location updates via Socket.IO
-5 **Status Updates**: Delivery partner updates order status (picked up, in transit, delivered)
-7. **Customer Tracking**: Customer can use order id to view the real-time location of their assigned delivery partner on a map.
+### Current Application Flow
+1. **Assignment**: Vendor views available orders and assigns a specific delivery partner
+2. **Delivery Access**: Only assigned orders appear in the delivery partner's dashboard
+3. **Tracking Start**: Delivery partner accepts the order and starts location tracking
+4. **Location Updates**: Delivery partner's app sends real-time location updates via Socket.IO
+5. **Status Updates**: Delivery partner updates order status (picked up, in transit, delivered)
+6. **Customer Tracking**: Customer can use order id to view the real-time location of their assigned delivery partner on a map.
 
 ### Multi-tenant Data Isolation
 - Each vendor can only view and manage their own orders
@@ -156,7 +156,7 @@ For Windows users, we provide convenience scripts:
 - Performance metrics dashboard showing earnings and statistics
 
 ### Customer Tracking
-- Secure tracking page accessible via unique tracking link/token
+- Secure tracking page accessible via order number
 - Real-time map showing assigned delivery partner's location
 - Order status timeline with accurate timestamps
 - ETA calculations based on real-time location data
@@ -179,10 +179,16 @@ The application includes mock data generators for demonstration purposes:
 - Demo mode is available on the tracking page for testing without backend
 - These mock implementations can be removed when connecting to a production backend
 
-### Current Limitations
-- Some frontend components use simulated data that should be replaced with real API calls
-- The vendor dashboard contains some mock UI elements for demonstration
-- Authentication flow uses local storage for development; should be enhanced for production
+### Current Limitations and Improvement Areas
+1. **Order Creation Flow**: The current implementation does not include the order creation step in the vendor dashboard. This should be added to complete the flow.
+
+2. **Tracking Security**: The customer tracking page currently uses only an order number for access. This should be enhanced with a secure tracking token as implemented in the backend routes.
+
+3. **Delivery Partner Assignment**: In the delivery dashboard, partners can self-assign orders. This should be modified to only show orders that vendors have specifically assigned to them.this is implemented just for test.
+
+4. **Status Synchronization**: There are some inconsistencies in status naming between frontend and backend (e.g., "picked" vs "picked_up"). These should be standardized.
+
+5. **Mock Data Removal**: Several components use mock data that should be replaced with real API calls in production.
 
 ## Testing
 Run the integration test to verify frontend-backend communication:
